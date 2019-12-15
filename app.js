@@ -1,79 +1,111 @@
-const express = require('express');
-const multer = require('multer');
-const mongoose = require('mongoose');
-const path = require('path');
-const cors = require('cors');
-require('dotenv/config');
+const express = require('express')
+const logger = require('morgan')
+const bodyParser = require('body-parser')
+const path = require('path')
 
-const ImageModel = require('./images');
+const app = express()
 
+// to log request from client
+app.use(logger('dev'))
+
+// to access parameters from clients (ex: req.body...)
+app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({ extended: false }))
+
+// to public 'uploads' folder
+app.use(express.static(path.join(__dirname, 'uploads')))
+
+
+//
+app.get('/', function(req, res, next) {
+  res.send("Welcome to Photo API")
+})
+
+// upload file to server
+const multer  = require('multer')
+const mkdirp = require('mkdirp')
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'uploads')
-    },
-    filename: function (req, file, cb) {
-        cb(null, Date.now() + '-' + file.originalname)
-    }
+  destination: (req, file, cb) => {
+    const dest = 'uploads';
+    mkdirp.sync(dest);
+    cb(null, dest)
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname)
+  }
 })
-
-function fileFilter(req, file, cb) {
-    const math = ["image/png", "image/jpeg", "image/jpg"];
-    const idx = math.indexOf(file.mimetype);
-    return cb(null, !!~idx);
-}
 const upload = multer({
-    storage: storage,
-    fileFilter: fileFilter
-});
-const {
-    PORT,
-    DB_NAME,
-    DB_PORT,
-    DB_HOST,
-    DB_PASS,
-    DB_USER
-} = process.env;
-mongoose.connect(`mongodb://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}`, {
-    useCreateIndex: true,
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-}, (err) => {
-    if (err) throw err;
-    console.log('Database connected');
-});
-
-const app = express();
-app.use(cors())
-app.use(express.static(path.join(__dirname, '/')));
-
-app.get('/', (req, res) => {
-    res.json({ message: 'Hello World' })
-});
-
-app.post('/images', upload.single('singleimage'), async (req, res) => {
-    try {
-        const image = await ImageModel.create({ path: req.file.path });
-        res.json(image);
-    } catch (error) {
-        res.status(404).json(error);
-    }
+  storage: storage,
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20 Mbs
+  }
 })
-app.get('/images', async (req, res) => {
-    try {
-        const images = await ImageModel.find({});
-        res.json(images);
-    } catch (error) {
-        res.status(404).json(error);
-    }
-})
-app.delete('/images/:id', async (req, res) => {
-    const id = req.params.id;
-    try {
-        const image = await ImageModel.findByIdAndDelete(id);
-        res.status(204).json({ message: 'delete successful' })
-    } catch (error) {
-        res.status(404).json(error);
-    }
+app.post('/api/upload', upload.single('file'), (req, res, next) => {
+  if (req.file.path) {
+    res.send({
+      success: true,
+      message: 'Successfully upload file to server!',
+      data: {
+        filepath: req.file.path.substring(8) // cut "uploads/"
+      }
+    })
+  } else {
+    res.send({
+      success: false,
+      message: 'Failed to upload file to server!'
+    })
+  }
 })
 
-app.listen(PORT);
+// get all files
+const fs = require('fs')
+app.get('/api/images', (req, res) => {
+  fs.readdir('uploads', (err, files) => {
+    var data = []
+    files.forEach(filepath => {
+      data.push({'filepath': filepath})
+    })
+    if (err != null) {
+      res.send({
+        error: err.message
+      })
+    } else {
+      res.send({
+        data: data
+      })
+    }
+  })
+})
+
+// delete file
+app.delete('/api/image', (req, res) => {
+  const filepath = req.body.filepath
+  
+  if (!filepath) {
+    return res.send({
+      success: false,
+      message: 'Failed to delete file on server!',
+      error: {
+        name: "BadRequestError",
+        message: "Missing filepath parameter!"
+      }
+    })
+  }
+  fs.unlink('uploads/' + filepath, (err) => {
+    if (err) {
+      return res.send({
+        success: false,
+        message: 'Failed to delete file on server!',
+        error: err
+      })
+    }
+    return res.send({
+      success: true,
+      message: 'Successfully delete file on server!',
+    })
+  })
+
+})
+
+
+app.listen(8128)
