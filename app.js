@@ -78,8 +78,8 @@ app.get('/api/images', (req, res) => {
 })
 
 // delete file
-app.delete('/api/image', (req, res) => {
-  const filepath = req.body.filepath
+app.delete('/api/images/:filepath', (req, res) => {
+  const filepath = req.params.filepath;
   
   if (!filepath) {
     return res.send({
